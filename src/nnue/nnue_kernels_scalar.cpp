@@ -54,8 +54,12 @@ const Kernels& select() {
     if (const char* forced = std::getenv("BAGATUR_SIMD")) {
         const std::string_view f{forced};
         if (f == "scalar") return scalar();
+#if defined(__aarch64__) || defined(_M_ARM64)
+        if (f == "neon") return neon();
+#else
         if (f == "avx2")   return avx2();
         if (f == "avx512") return avx512();
+#endif
     }
 #if defined(__aarch64__) || defined(_M_ARM64)
     return neon();

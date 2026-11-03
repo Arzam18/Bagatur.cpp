@@ -42,12 +42,17 @@ std::int64_t v_screlu_dot(const std::int16_t* acc, const std::int32_t* weights) 
         int32x4_t sq1 = vmulq_s32(up, up);
         int32x4_t w0 = vld1q_s32(weights + i);
         int32x4_t w1 = vld1q_s32(weights + i + 4);
-        int32x4_t p0 = vmulq_s32(sq0, w0);
-        int32x4_t p1 = vmulq_s32(sq1, w1);
-        // Widen each product before summing to avoid lane overflow over the full network.
-        alignas(16) std::int32_t tmp[8];
-        vst1q_s32(tmp, p0);
-        vst1q_s32(tmp + 4, p1);
+        // Widen each signed 32x32 product to 64 bits before accumulation.
+        // vmulq_s32 would overflow for large NNUE weights before the sum is widened.
+        const int64x2_t p00 = vmull_s32(vget_low_s32(sq0),  vget_low_s32(w0));
+        const int64x2_t p01 = vmull_s32(vget_high_s32(sq0), vget_high_s32(w0));
+        const int64x2_t p10 = vmull_s32(vget_low_s32(sq1),  vget_low_s32(w1));
+        const int64x2_t p11 = vmull_s32(vget_high_s32(sq1), vget_high_s32(w1));
+        alignas(16) std::int64_t tmp[8];
+        vst1q_s64(tmp,     p00);
+        vst1q_s64(tmp + 2, p01);
+        vst1q_s64(tmp + 4, p10);
+        vst1q_s64(tmp + 6, p11);
         for (int j = 0; j < 8; ++j) total += tmp[j];
     }
     return total;

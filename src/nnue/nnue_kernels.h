@@ -37,9 +37,13 @@ struct Kernels {
     const char*  name;
 };
 
-const Kernels& avx512();  // nnue_kernels_avx512.cpp  — built with AVX-512F + BW
-const Kernels& avx2();    // nnue_kernels_avx2.cpp    — built with AVX2 + FMA
-const Kernels& scalar();  // nnue_kernels_scalar.cpp  — portable fallback
+#if defined(__aarch64__) || defined(_M_ARM64)
+const Kernels& neon();    // nnue_kernels_neon.cpp — ARM Advanced SIMD (NEON)
+#else
+const Kernels& avx512();  // nnue_kernels_avx512.cpp — built with AVX-512F + BW
+const Kernels& avx2();    // nnue_kernels_avx2.cpp   — built with AVX2 + FMA
+#endif
+const Kernels& scalar();  // nnue_kernels_scalar.cpp — portable fallback
 
 // The kernel set for the running CPU, selected once at startup.
 const Kernels& active();
