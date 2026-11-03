@@ -19,7 +19,7 @@ namespace {
 // LMR_TABLE — same shape as Search_PVS_NWS.LMR_TABLE.
 struct LMRTable {
     double t[64][64];
-    constexpr LMRTable() : t{} {
+    LMRTable() : t{} {
         for (int d = 1; d < 64; ++d) {
             for (int m = 1; m < 64; ++m) {
                 double r = std::log((double)d) * std::log((double)m) / 2.0;
