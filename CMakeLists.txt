@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 project(BagaturCpp LANGUAGES CXX C)
 
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" BAGATUR_PROCESSOR)
+set(BAGATUR_ARM64 FALSE)
+if (BAGATUR_PROCESSOR MATCHES "^(aarch64|arm64)$" OR ANDROID_ABI STREQUAL "arm64-v8a")
+    set(BAGATUR_ARM64 TRUE)
+endif()
+
 # ------------------------------------------------------------------ language
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -39,12 +45,23 @@ else()
     # — never distribute a native build.
     set(BAGATUR_MARCH "haswell" CACHE STRING
         "ISA for -march on general code: 'haswell' = portable floor (ship this); 'native' = fastest on THIS host, not portable")
-    add_compile_options(-march=${BAGATUR_MARCH} -mbmi -mbmi2 -mpopcnt)
+    if (BAGATUR_ARM64)
+        # Android ARM64 has Advanced SIMD (NEON) as part of the architecture.
+        add_compile_options(-march=armv8-a+simd)
+    else()
+        add_compile_options(-march=${BAGATUR_MARCH} -mbmi -mbmi2 -mpopcnt)
+    endif()
     add_compile_options(-fno-trapping-math -fno-math-errno)
     # Statically link the C/C++/winpthread runtimes so the shipped exe needs no
     # MinGW DLLs (libstdc++-6, libgcc_s_seh-1, libwinpthread-1) — a target box
     # only needs the always-present Windows system DLLs (KERNEL32, msvcrt).
-    add_link_options(-static -static-libgcc -static-libstdc++)
+    if (ANDROID)
+        # Android executables must use the Android/Bionic system linker.
+        # Link the NDK C++ runtime statically to avoid libc++_shared.so.
+        add_link_options(-static-libstdc++)
+    else()
+        add_link_options(-static -static-libgcc -static-libstdc++)
+    endif()
 
     # LTO. Requires a GCC where LTO + static linking is sound: GCC 8.1
     # miscompiled that combination into a startup crash, but a modern MinGW GCC
@@ -99,26 +116,33 @@ target_include_directories(bagatur PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # portable floor; only the two SIMD kernel files are raised, and each kernel also
 # carries a target() attribute so the ISA survives LTO (the per-file -m flags
 # alone are not reliably preserved across the link-time recompile).
-add_library(nnue STATIC
-    src/nnue/nnue.cpp
-    src/nnue/nnue_kernels_avx512.cpp
-    src/nnue/nnue_kernels_avx2.cpp
-    src/nnue/nnue_kernels_scalar.cpp
-)
+if (BAGATUR_ARM64)
+    add_library(nnue STATIC
+        src/nnue/nnue.cpp
+        src/nnue/nnue_kernels_neon.cpp
+        src/nnue/nnue_kernels_scalar.cpp
+    )
+else()
+    add_library(nnue STATIC
+        src/nnue/nnue.cpp
+        src/nnue/nnue_kernels_avx512.cpp
+        src/nnue/nnue_kernels_avx2.cpp
+        src/nnue/nnue_kernels_scalar.cpp
+    )
+    if (MSVC)
+        set_source_files_properties(src/nnue/nnue_kernels_avx512.cpp
+            PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
+        set_source_files_properties(src/nnue/nnue_kernels_avx2.cpp
+            PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    else()
+        set_source_files_properties(src/nnue/nnue_kernels_avx512.cpp
+            PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx2;-mfma")
+        set_source_files_properties(src/nnue/nnue_kernels_avx2.cpp
+            PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
+    endif()
+endif()
 target_include_directories(nnue PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(nnue PUBLIC bagatur)
-
-if (MSVC)
-    set_source_files_properties(src/nnue/nnue_kernels_avx512.cpp
-        PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
-    set_source_files_properties(src/nnue/nnue_kernels_avx2.cpp
-        PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
-else()
-    set_source_files_properties(src/nnue/nnue_kernels_avx512.cpp
-        PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx2;-mfma")
-    set_source_files_properties(src/nnue/nnue_kernels_avx2.cpp
-        PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
-endif()
 
 # ------------------------------------------------------------------ embedded network
 # If network_bagatur.nnue is present in the project root, embed it directly
@@ -202,7 +226,7 @@ target_link_libraries(uci PUBLIC search)
 # cutechess / arena / chessbase without any companion files.
 add_executable(Bagatur.cpp-x64 src/uci/uci_main.cpp)
 target_link_libraries(Bagatur.cpp-x64 PRIVATE uci)
-if (NOT MSVC)
+if (NOT MSVC AND NOT ANDROID)
     target_link_libraries(Bagatur.cpp-x64 PRIVATE pthread)
 endif()
 
@@ -212,8 +236,13 @@ endif()
 # `-avx2`/`-avx512` suffix would misdescribe it. The CMake TARGET stays
 # `Bagatur.cpp-x64` (so `--target Bagatur.cpp-x64` and the docs keep working);
 # only the produced file is renamed.
-set_target_properties(Bagatur.cpp-x64 PROPERTIES
-    OUTPUT_NAME "Bagatur.cpp_1.0-x86_64")
+if (ANDROID)
+    set_target_properties(Bagatur.cpp-x64 PROPERTIES OUTPUT_NAME "Bagatur.cpp_1.0-android-arm64")
+elseif (BAGATUR_ARM64)
+    set_target_properties(Bagatur.cpp-x64 PROPERTIES OUTPUT_NAME "Bagatur.cpp_1.0-linux-aarch64")
+else()
+    set_target_properties(Bagatur.cpp-x64 PROPERTIES OUTPUT_NAME "Bagatur.cpp_1.0-x86_64")
+endif()
 
 if (BAGATUR_HAS_EMBEDDED_NETWORK)
     # Add the generated TU to the executable's own sources. Avoids the
