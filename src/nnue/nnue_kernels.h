@@ -41,7 +41,7 @@ const Kernels& avx512();  // nnue_kernels_avx512.cpp  — built with AVX-512F + 
 const Kernels& avx2();    // nnue_kernels_avx2.cpp    — built with AVX2 + FMA
 const Kernels& scalar();  // nnue_kernels_scalar.cpp  — portable fallback
 
-// The kernel set for the running CPU, chosen once by CPUID on first call.
+// The kernel set for the running CPU, selected once at startup.
 const Kernels& active();
 
 }  // namespace nnue::kernels

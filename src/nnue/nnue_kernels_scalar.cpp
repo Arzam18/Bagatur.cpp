@@ -57,7 +57,9 @@ const Kernels& select() {
         if (f == "avx2")   return avx2();
         if (f == "avx512") return avx512();
     }
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return neon();
+#elif defined(__GNUC__) || defined(__clang__)
     __builtin_cpu_init();
     if (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw"))
         return avx512();
